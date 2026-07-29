@@ -3,3 +3,8 @@ Split.app/
 .DS_Store
 *.o
 dist/
+
+# Windows build (windows/)
+bin/
+obj/
+build/

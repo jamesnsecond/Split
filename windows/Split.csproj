@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Split</RootNamespace>
+    <AssemblyName>Split</AssemblyName>
+    <ApplicationIcon>Split.ico</ApplicationIcon>
+
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>Split</Product>
+    <Company>barongartner</Company>
+    <Description>Route each app's audio to its own output device.</Description>
+
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Building these Windows targets from macOS. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Ship a single ready-to-run exe: no .NET install, nothing to compile. -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Halves the download. Costs a few hundred ms on first launch while the
+         runtime decompresses, which is a fair trade for a one-file app. -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Trimming breaks the COM interop this app is built on. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>embedded</DebugType>
+
+    <!-- The audio layer is one big block of COM interop; these two would fire
+         on nearly every P/Invoke signature and drown out real warnings. -->
+    <NoWarn>$(NoWarn);CA1416;SYSLIB1054</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The macOS build has zero dependencies, but it could be tested against
+         real hardware. This one can't be, so the standard WASAPI surface
+         (device enumeration, sessions, per-app volume, meters) rides on a
+         well-worn library instead of hand-rolled interop. The one undocumented
+         API Split needs — per-app endpoint assignment — is in Audio/, because
+         nothing wraps it. -->
+    <PackageReference Include="NAudio.Wasapi" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Split.ico" Condition="Exists('Split.ico')" />
+  </ItemGroup>
+
+</Project>

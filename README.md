@@ -2,6 +2,11 @@
 
 Several people, one Mac, everyone hearing their own thing.
 
+> **On Windows?** There's a Windows build in [windows/](windows/) — same idea,
+> rebuilt on Windows' own per-app routing. It trades the delay sliders and the
+> sync wizard for zero latency and no permissions, and Windows caps you at one
+> Bluetooth headphone. See [windows/README.md](windows/README.md).
+
 Split routes each app's audio to its own output device. Apple Music can play
 to your AirPods while Netflix plays to someone's wired headphones and YouTube
 Music to a third pair — at the same time, from the same MacBook. Each route
