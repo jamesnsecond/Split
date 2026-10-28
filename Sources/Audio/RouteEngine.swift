@@ -30,6 +30,8 @@ final class RouteEngine {
 
     let identity: Identity
     private let tap: TapAggregate
+    /// Local patch: copy of this route's audio into BlackHole 2ch.
+    private let mirror: MirrorOutput?
     private let delayLine: DelayLine
     private var ioProcID: AudioDeviceIOProcID?
     private(set) var started = false
@@ -78,6 +80,10 @@ final class RouteEngine {
         rtScratch = .allocate(capacity: rtScratchFrames * max(channels, 1))
         rtScratch.initialize(repeating: 0, count: rtScratchFrames * max(channels, 1))
 
+        mirror = destinationUID == MirrorOutput.blackHoleUID
+            ? nil
+            : MirrorOutput(channels: max(channels, 1), sampleRate: rate)
+
         params = Params(gain: Float(volume), delayFrames: Int32(delayMs * rate / 1000.0), muted: muted)
         rtParams = params
     }
@@ -123,9 +129,11 @@ final class RouteEngine {
             throw CoreAudioError(message: "device start failed", status: err)
         }
         started = true
+        mirror?.start()
     }
 
     func invalidate() {
+        mirror?.stop()
         if started, let ioProcID {
             AudioDeviceStop(tap.aggregateID, ioProcID)
             AudioDeviceDestroyIOProcID(tap.aggregateID, ioProcID)
@@ -251,6 +259,9 @@ final class RouteEngine {
                 }
             }
         }
+
+        // Local patch: hand the same block to the BlackHole mirror.
+        mirror?.push(scratch, frames: frames, srcChannels: inChannels)
 
         // Telemetry (skip on contention — the next block will land it).
         if os_unfair_lock_trylock(&telemetryLock) {

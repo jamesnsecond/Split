@@ -51,8 +51,6 @@ final class AudioDeviceMonitor {
             // Aggregates are either our own private per-route devices (which
             // shouldn't be visible at all) or the user's multi-output setups,
             // which aren't valid route destinations for us either.
-            guard transport != kAudioDeviceTransportTypeAggregate,
-                  transport != kAudioDeviceTransportTypeVirtual else { continue }
             guard let uid = CA.deviceUID(id), let name = CA.deviceName(id) else { continue }
             devices.append(OutputDevice(id: id, uid: uid, name: name,
                                         transport: transport,

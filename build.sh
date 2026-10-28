@@ -41,7 +41,7 @@ find Sources -name '*.swift' -print0 | xargs -0 swiftc -O -swift-version 5 -pars
     -framework SwiftUI -framework AppKit -framework CoreAudio -framework AudioToolbox -framework ServiceManagement \
     -o "$BUILD/$BIN"
 
-echo "Assembling $APP…"
+echo "Assembling ${APP}…"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD/$BIN" "$APP/Contents/MacOS/$BIN"
 cp Info.plist "$APP/Contents/Info.plist"

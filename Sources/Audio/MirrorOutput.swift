@@ -1,0 +1,118 @@
+// Local patch: plays a copy of a route's audio into BlackHole 2ch through its
+// own IOProc, fed from a small ring buffer. The route's own tap + aggregate
+// stay exactly as upstream, so normal playback is unaffected.
+//
+// The ring is shared between two real-time threads using try-locks only: if
+// either side can't get the lock it skips that block (the mirror gets a few
+// ms of silence) rather than ever blocking the audio thread.
+
+import Foundation
+import CoreAudio
+import os
+
+final class MirrorOutput {
+    static let blackHoleUID = "BlackHole2ch_UID"
+
+    private let deviceID: AudioDeviceID
+    private let channels: Int
+    private let capacity: Int            // frames
+    private let maxBuffered: Int         // frames; caps the mirror's latency
+    private let ring: UnsafeMutablePointer<Float32>
+    private var writePos = 0
+    private var readPos = 0
+    private var count = 0
+    private var lock = os_unfair_lock()
+    private var ioProcID: AudioDeviceIOProcID?
+    private var started = false
+
+    init?(channels: Int, sampleRate: Double) {
+        guard let id = CA.deviceList().first(where: { CA.deviceUID($0) == MirrorOutput.blackHoleUID }) else {
+            return nil
+        }
+        deviceID = id
+        self.channels = max(channels, 1)
+        capacity = max(Int(sampleRate * 0.5), 4096)
+        maxBuffered = max(Int(sampleRate * 0.2), 2048)
+        ring = .allocate(capacity: capacity * self.channels)
+        ring.initialize(repeating: 0, count: capacity * self.channels)
+    }
+
+    deinit {
+        stop()
+        ring.deallocate()
+    }
+
+    func start() {
+        guard !started else { return }
+        var err = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, deviceID, nil) { [weak self] _, _, _, outOutputData, _ in
+            self?.pull(into: outOutputData)
+        }
+        guard err == noErr, let ioProcID else { return }
+        err = AudioDeviceStart(deviceID, ioProcID)
+        if err == noErr {
+            started = true
+        } else {
+            AudioDeviceDestroyIOProcID(deviceID, ioProcID)
+            self.ioProcID = nil
+        }
+    }
+
+    func stop() {
+        guard let ioProcID else { return }
+        if started { AudioDeviceStop(deviceID, ioProcID) }
+        AudioDeviceDestroyIOProcID(deviceID, ioProcID)
+        self.ioProcID = nil
+        started = false
+    }
+
+    /// Called from the route's audio thread with interleaved samples.
+    func push(_ src: UnsafePointer<Float32>, frames: Int, srcChannels: Int) {
+        guard frames > 0, os_unfair_lock_trylock(&lock) else { return }
+        defer { os_unfair_lock_unlock(&lock) }
+        let sc = max(srcChannels, 1)
+        for f in 0..<frames {
+            if count == capacity {          // full: drop the oldest frame
+                readPos = (readPos + 1) % capacity
+                count -= 1
+            }
+            let dst = writePos * channels
+            for c in 0..<channels {
+                ring[dst + c] = src[f * sc + min(c, sc - 1)]
+            }
+            writePos = (writePos + 1) % capacity
+            count += 1
+        }
+    }
+
+    /// BlackHole's IOProc: hand over whatever is buffered, silence otherwise.
+    private func pull(into out: UnsafeMutablePointer<AudioBufferList>) {
+        let abl = UnsafeMutableAudioBufferListPointer(out)
+        for buf in abl {
+            if let d = buf.mData { memset(d, 0, Int(buf.mDataByteSize)) }
+        }
+        guard let first = abl.first, let data = first.mData else { return }
+        let oc = max(Int(first.mNumberChannels), 1)
+        let frames = Int(first.mDataByteSize) / (MemoryLayout<Float32>.size * oc)
+        guard frames > 0, os_unfair_lock_trylock(&lock) else { return }
+        defer { os_unfair_lock_unlock(&lock) }
+
+        // The two devices run on separate clocks; if too much has piled up,
+        // skip ahead so the copy never drifts far behind the real call.
+        if count > maxBuffered {
+            let skip = count - maxBuffered / 2
+            readPos = (readPos + skip) % capacity
+            count -= skip
+        }
+
+        let o = data.bindMemory(to: Float32.self, capacity: frames * oc)
+        let n = min(frames, count)
+        for f in 0..<n {
+            let s = readPos * channels
+            for c in 0..<oc {
+                o[f * oc + c] = ring[s + min(c, channels - 1)]
+            }
+            readPos = (readPos + 1) % capacity
+            count -= 1
+        }
+    }
+}
